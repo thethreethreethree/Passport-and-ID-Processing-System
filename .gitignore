@@ -1,0 +1,9 @@
+# Tesseract OCR assets — large binaries, fetched via scripts/fetch-ocr-assets.*
+extension/lib/tesseract/
+
+# Node
+node_modules/
+
+# OS
+Thumbs.db
+.DS_Store
