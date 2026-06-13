@@ -1,7 +1,10 @@
-# Tesseract OCR assets — large binaries, fetched via scripts/fetch-ocr-assets.*
-extension/lib/tesseract/
+# OCR assets ARE committed (extension/lib/tesseract/) so the extension is
+# self-contained and installs offline on any machine. Do not ignore them.
 
-# Node
+# Build artifacts / packaging
+dist/
+
+# Node (only needed to regenerate icons)
 node_modules/
 
 # OS

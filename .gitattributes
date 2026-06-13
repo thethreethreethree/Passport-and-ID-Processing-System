@@ -1,2 +1,10 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Keep OCR engine + brand assets byte-identical across machines (no EOL rewriting).
+extension/lib/tesseract/** binary
+*.woff2 binary
+*.png  binary
+*.gz   binary
+*.wasm binary
+
