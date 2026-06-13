@@ -28,6 +28,7 @@
         await worker.setParameters({
           tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789<",
           tessedit_pageseg_mode: "6", // assume a uniform block of text
+          tessedit_do_invert: "0",    // skip the auto inverted re-pass (our input is black-on-white) — ~2x faster
         });
         return worker;
       })();
@@ -119,7 +120,9 @@
   async function recognizeMRZ(imgOrFile, onProgress) {
     const img = imgOrFile instanceof Image ? imgOrFile : await fileToImage(imgOrFile);
     const worker = await getWorker(onProgress);
-    const crops = [0.72, 0.66, 0.78, 0.5, 0.0];
+    // Bottom-band crops only (where the MRZ lives). Dropped the full-image passes:
+    // they were slow, noisy, and the manual crop is the accurate fallback anyway.
+    const crops = [0.72, 0.66, 0.78];
     const attempts = [];
     let best = null;
     let rawest = "";
@@ -141,5 +144,10 @@
     return { text: rawest, parsed: parseText(rawest), attempts, weak: true, rawOnly: true };
   }
 
-  root.OCR = { recognizeMRZ, recognizeRegion, fileToImage };
+  // Warm up the worker (load model) ahead of time so the first real scan is fast.
+  function warm() {
+    try { return getWorker(); } catch (e) { return Promise.resolve(null); }
+  }
+
+  root.OCR = { recognizeMRZ, recognizeRegion, fileToImage, warm };
 })(typeof self !== "undefined" ? self : this);

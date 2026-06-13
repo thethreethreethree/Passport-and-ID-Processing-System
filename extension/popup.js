@@ -22,6 +22,9 @@ function esc(s) {
 const imgEl = document.getElementById("imgfile");
 let previewImg = null, previewScale = 1, sel = null, selecting = false;
 
+// Warm the OCR model in the background when the popup opens, so the first scan is fast.
+if (window.OCR && typeof Tesseract !== "undefined") window.OCR.warm();
+
 function ocrProgress(m) {
   if (m && m.status)
     $("#status").textContent = "OCR: " + m.status + (m.progress ? " " + Math.round(m.progress * 100) + "%" : "");
