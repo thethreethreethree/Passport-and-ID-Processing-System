@@ -247,7 +247,11 @@ async function fillSectionInteractive(headingText, anchorFieldId, plan, label) {
       return;
     }
     const opened = await injectFn(openSectionAdd, [headingText]);
-    if (!opened || !opened.clicked) { $("#status").textContent = `${label}: couldn’t find the + button.`; return; }
+    if (!opened || !opened.clicked) {
+      $("#out").textContent = JSON.stringify({ sectionState: state, openSectionAdd: opened }, null, 2);
+      $("#status").textContent = `${label}: couldn’t find the + button (${(opened && opened.reason) || "?"}) — see Recon box.`;
+      return;
+    }
     const appeared = await injectFn(waitForField, [anchorFieldId, 4000]);
     if (!appeared) { $("#status").textContent = `${label}: the + form didn’t open.`; return; }
     await runFill(plan, label);
@@ -694,47 +698,55 @@ async function fillPlan(plan) {
   return { url: location.href, filledAt: new Date().toString(), results };
 }
 
-// --- Section orchestration helpers (injected; self-contained) ---
+// --- Section orchestration helpers (injected; each fully SELF-CONTAINED, because
+// executeScript injects one function at a time with no shared helpers) ---
 
-// Find a section's card by its heading text (walk up to the nearest ancestor
-// that holds the section's table / empty-state).
-function _findSectionCard(headingText) {
-  const norm = (s) => (s || "").replace(/\s+/g, " ").trim();
-  const heading = [...document.querySelectorAll("h1,h2,h3,h4,h5,div,span,p")].find(
-    (e) => e.children.length === 0 && norm(e.textContent) === headingText
-  );
-  if (!heading) return null;
-  let card = heading.parentElement;
-  for (let i = 0; i < 8 && card; i++) {
-    if (card.querySelector("table") || /no data available/i.test(card.textContent)) return { card, heading };
-    card = card.parentElement;
-  }
-  return { card: heading.parentElement, heading };
-}
+// Locate a section heading element (a leaf whose visible text == headingText).
+// Returned as a string of code is not possible, so each function re-implements it.
 
 // Is the section empty (no existing row)?
 function sectionState(headingText) {
-  const found = _findSectionCard(headingText);
-  if (!found) return { found: false };
-  const text = found.card.textContent || "";
-  const noData = /no data available/i.test(text);
-  const rows = found.card.querySelectorAll("tbody tr").length;
+  const norm = (s) => (s || "").replace(/\s+/g, " ").trim();
+  const isVis = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+  const heading = [...document.querySelectorAll("h1,h2,h3,h4,h5,h6,div,span,p,strong,b,label")]
+    .find((e) => e.children.length === 0 && norm(e.textContent) === headingText && isVis(e));
+  if (!heading) return { found: false };
+  let card = heading.parentElement;
+  for (let i = 0; i < 10 && card; i++) {
+    if (card.querySelector("table") || /no data available/i.test(card.textContent)) break;
+    card = card.parentElement;
+  }
+  card = card || heading.parentElement;
+  const noData = /no data available/i.test(card.textContent || "");
+  const rows = card.querySelectorAll("tbody tr").length;
   return { found: true, empty: noData || rows === 0, rows, noData };
 }
 
-// Click the section's "+" add button (the icon button on the heading's row).
+// Click the section's "+" add button — found POSITIONALLY as the right-most
+// clickable on the heading's row (robust to hashed class names).
 function openSectionAdd(headingText) {
-  const found = _findSectionCard(headingText);
-  if (!found) return { clicked: false, reason: "section not found" };
+  const norm = (s) => (s || "").replace(/\s+/g, " ").trim();
   const isVis = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
-  const hy = found.heading.getBoundingClientRect().top;
-  const btns = [...found.card.querySelectorAll("button")].filter((b) => /IconButton/.test(b.className) && isVis(b));
-  if (!btns.length) return { clicked: false, reason: "no icon button in section" };
-  btns.sort((a, b) => Math.abs(a.getBoundingClientRect().top - hy) - Math.abs(b.getBoundingClientRect().top - hy));
-  const add = btns[0];
+  const heading = [...document.querySelectorAll("h1,h2,h3,h4,h5,h6,div,span,p,strong,b,label")]
+    .find((e) => e.children.length === 0 && norm(e.textContent) === headingText && isVis(e));
+  if (!heading) return { clicked: false, reason: "heading '" + headingText + "' not found" };
+  const hr = heading.getBoundingClientRect();
+  const hcy = hr.top + hr.height / 2;
+  const cands = [...document.querySelectorAll('button, [role="button"], a[href]')]
+    .filter(isVis)
+    .map((el) => ({ el, r: el.getBoundingClientRect() }))
+    .filter((o) => Math.abs(o.r.top + o.r.height / 2 - hcy) <= 32 && o.r.left >= hr.right - 4)
+    .sort((a, b) => b.r.left - a.r.left); // right-most first
+  if (!cands.length) {
+    const near = [...document.querySelectorAll("button,[role=button]")].filter(isVis)
+      .map((el) => ({ y: Math.round(el.getBoundingClientRect().top), x: Math.round(el.getBoundingClientRect().left), cls: (el.className || "").toString().slice(0, 30) }))
+      .filter((o) => Math.abs(o.y - hcy) <= 120).slice(0, 12);
+    return { clicked: false, reason: "no button on heading row", diag: { headingY: Math.round(hcy), headingRight: Math.round(hr.right), nearbyButtons: near } };
+  }
+  const add = cands[0].el;
   add.scrollIntoView({ block: "center" });
   ["mousedown", "mouseup", "click"].forEach((t) => add.dispatchEvent(new MouseEvent(t, { bubbles: true })));
-  return { clicked: true, dy: Math.round(add.getBoundingClientRect().top - hy) };
+  return { clicked: true, picked: { x: Math.round(cands[0].r.left), cls: (add.className || "").toString().slice(0, 50) } };
 }
 
 // Wait for a field id to appear (the modal has opened).
