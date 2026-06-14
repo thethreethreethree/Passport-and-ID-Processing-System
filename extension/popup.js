@@ -180,6 +180,85 @@ if (readSelEl)
     }
   });
 
+// --- Window controls (we run as a persistent popup window) ---
+const winMin = document.getElementById("winmin");
+if (winMin) winMin.addEventListener("click", () => {
+  chrome.windows.getCurrent((w) => { try { chrome.windows.update(w.id, { state: "minimized" }); } catch (e) {} });
+});
+const winClose = document.getElementById("winclose");
+if (winClose) winClose.addEventListener("click", () => window.close());
+
+// --- Camera capture (with manual focus when the device supports it) ---
+let cameraStream = null;
+const camVideo = document.getElementById("cameraVideo");
+const camWrap = document.getElementById("camerawrap");
+
+async function startCamera() {
+  const camnote = document.getElementById("camnote");
+  try {
+    cameraStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } },
+      audio: false,
+    });
+    camVideo.srcObject = cameraStream;
+    camWrap.style.display = "block";
+    setupFocusControl();
+    $("#status").textContent = "Camera on — frame the MRZ lines, then Capture.";
+  } catch (e) {
+    if (camnote) camnote.textContent = "Camera unavailable: " + e.message;
+    $("#status").textContent = "Couldn't start camera: " + e.message;
+  }
+}
+
+function setupFocusControl() {
+  const focusrow = document.getElementById("focusrow");
+  const range = document.getElementById("focusRange");
+  const camnote = document.getElementById("camnote");
+  const track = cameraStream && cameraStream.getVideoTracks()[0];
+  const caps = track && track.getCapabilities ? track.getCapabilities() : {};
+  if (caps.focusMode && caps.focusMode.includes("manual") && caps.focusDistance) {
+    focusrow.style.display = "flex";
+    range.min = caps.focusDistance.min;
+    range.max = caps.focusDistance.max;
+    range.step = caps.focusDistance.step || 0.01;
+    const cur = track.getSettings().focusDistance;
+    range.value = cur != null ? cur : caps.focusDistance.min;
+    range.oninput = async () => {
+      try { await track.applyConstraints({ advanced: [{ focusMode: "manual", focusDistance: parseFloat(range.value) }] }); } catch (e) {}
+    };
+    if (camnote) camnote.textContent = "Manual focus available — drag the slider.";
+  } else {
+    focusrow.style.display = "none";
+    if (camnote) camnote.textContent = "Auto-focus only (this camera has no manual focus).";
+  }
+}
+
+function stopCamera() {
+  if (cameraStream) { cameraStream.getTracks().forEach((t) => t.stop()); cameraStream = null; }
+  if (camWrap) camWrap.style.display = "none";
+  if (camVideo) camVideo.srcObject = null;
+}
+
+async function capturePhoto() {
+  if (!cameraStream) return;
+  const w = camVideo.videoWidth, h = camVideo.videoHeight;
+  if (!w || !h) { $("#status").textContent = "Camera not ready yet — try again."; return; }
+  const canvas = document.getElementById("cameraCanvas");
+  canvas.width = w; canvas.height = h;
+  canvas.getContext("2d").drawImage(camVideo, 0, 0, w, h);
+  const dataUrl = canvas.toDataURL("image/jpeg", 0.95);
+  stopCamera();
+  try { await startScan(await dataUrlToImage(dataUrl)); }
+  catch (e) { $("#status").textContent = "Couldn't process photo: " + e.message; }
+}
+
+const takePhotoBtn = document.getElementById("takephoto");
+if (takePhotoBtn) takePhotoBtn.addEventListener("click", startCamera);
+const capBtn = document.getElementById("capturephoto");
+if (capBtn) capBtn.addEventListener("click", capturePhoto);
+const cancelCamBtn = document.getElementById("cancelphoto");
+if (cancelCamBtn) cancelCamBtn.addEventListener("click", stopCamera);
+
 document.getElementById("readmrz").addEventListener("click", () => {
   const raw = $("#mrztext").value.trim();
   if (!raw) { $("#status").textContent = "Paste the MRZ lines first."; return; }
@@ -298,7 +377,16 @@ document.getElementById("filladdress").addEventListener("click", () => {
   fillSectionInteractive("Addresses", "addressLine1", window.Mappers.buildAddressPlan(parsedRecord), "Address");
 });
 
+// When opened as a persistent window, we're bound to the Mews tab via ?tabId=.
+const TARGET_TAB_ID = (() => {
+  const v = new URLSearchParams(location.search).get("tabId");
+  return v ? parseInt(v, 10) : null;
+})();
+
 async function getActiveTab() {
+  if (TARGET_TAB_ID != null) {
+    try { return await chrome.tabs.get(TARGET_TAB_ID); } catch (e) {}
+  }
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   return tab;
 }

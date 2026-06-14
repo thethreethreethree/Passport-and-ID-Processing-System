@@ -1,17 +1,49 @@
-// Service worker: opens the extension popup when the in-page "Scan & Fill" button
-// asks for it (a content script can't open the popup directly).
+// Opens the dashboard as a persistent popup WINDOW (not an auto-closing action
+// popup), bound to the Mews tab it was launched from. A real window doesn't close
+// when the Mews page steals focus — which is what was breaking the auto-fill.
+
+let dashboardWindowId = null;
+
+function dashUrl(tabId) {
+  return chrome.runtime.getURL("popup.html") + "?tabId=" + tabId;
+}
+
+async function openDashboard(tabId) {
+  if (!tabId) return;
+  // Re-bind to the current guest: close any existing dashboard, open a fresh one.
+  if (dashboardWindowId != null) {
+    try { await chrome.windows.remove(dashboardWindowId); } catch (e) {}
+    dashboardWindowId = null;
+  }
+  try {
+    const win = await chrome.windows.create({
+      url: dashUrl(tabId),
+      type: "popup",
+      width: 600,
+      height: 820,
+      focused: true,
+    });
+    dashboardWindowId = win.id;
+  } catch (e) {
+    console.warn("openDashboard failed:", e && e.message);
+  }
+}
+
+// Toolbar icon click (no default_popup, so this fires).
+chrome.action.onClicked.addListener((tab) => {
+  if (tab && tab.id) openDashboard(tab.id);
+});
+
+// In-page "Scan & Fill" button asks to open the dashboard for its own tab.
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg && msg.action === "openPopup") {
-    if (chrome.action && chrome.action.openPopup) {
-      Promise.resolve(chrome.action.openPopup()).catch((e) => {
-        // Older Chrome or gesture restriction — fall back to a hint on the badge.
-        console.warn("openPopup failed:", e && e.message);
-        chrome.action.setBadgeText({ text: "↑" });
-        chrome.action.setBadgeBackgroundColor({ color: "#e44a3c" });
-        setTimeout(() => chrome.action.setBadgeText({ text: "" }), 4000);
-      });
-    }
+    const tabId = sender && sender.tab && sender.tab.id;
+    if (tabId) openDashboard(tabId);
     sendResponse && sendResponse({ ok: true });
   }
   return true;
+});
+
+chrome.windows.onRemoved.addListener((wid) => {
+  if (wid === dashboardWindowId) dashboardWindowId = null;
 });

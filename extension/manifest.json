@@ -1,9 +1,10 @@
 {
   "manifest_version": 3,
   "name": "Frendz · Passport / ID Autofill",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Reads a passport/ID MRZ locally and auto-fills the Mews guest profile. Frendz Hostel El Nido. Local only — nothing is sent anywhere.",
   "permissions": ["activeTab", "scripting", "storage", "unlimitedStorage"],
+  "host_permissions": ["https://app.mews.com/*"],
   "background": {
     "service_worker": "background.js"
   },
@@ -21,7 +22,6 @@
     }
   ],
   "action": {
-    "default_popup": "popup.html",
     "default_title": "Frendz · Passport / ID Autofill",
     "default_icon": {
       "16": "images/icon-16.png",

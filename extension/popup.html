@@ -95,12 +95,24 @@
       white-space:pre; overflow:auto; }
     .foot { font-size:10.5px; color:var(--muted); padding:0 16px 14px; }
     .foot b { color:var(--green); font-weight:700; }
+    .wbtn { width:26px; height:26px; padding:0; border:1px solid var(--line); background:#fff;
+      color:var(--navy); border-radius:7px; font-size:15px; line-height:1; cursor:pointer; margin-left:6px; }
+    .wbtn:hover { background:#f1f5f8; }
+    .wclose:hover { background:var(--red); border-color:var(--red); color:#fff; }
+    /* Camera */
+    #camerawrap { display:none; margin-top:8px; }
+    #cameraVideo { width:100%; border-radius:9px; background:#000; display:block; }
+    #cameraCanvas { display:none; }
+    .camrow { display:flex; gap:8px; align-items:center; margin-top:7px; flex-wrap:wrap; }
+    .camrow input[type=range] { flex:1; min-width:120px; }
   </style>
 </head>
 <body>
   <div class="topbar">
     <img src="images/logo-el-nido.png" alt="Frendz Hostel El Nido" />
-    <span class="kicker">Passport · ID Autofill</span>
+    <span class="kicker" style="flex:1; margin-left:10px">Passport · ID Autofill</span>
+    <button id="winmin" class="wbtn" title="Minimize">–</button>
+    <button id="winclose" class="wbtn wclose" title="Close">×</button>
   </div>
   <div class="accent"></div>
   <p class="lead">Reads the passport MRZ, you review, then it fills the Mews profile. Local only — nothing leaves this device.</p>
@@ -108,8 +120,24 @@
   <div class="wrap">
     <div class="card">
       <div class="step"><span class="n">1</span> Read the document</div>
-      <div class="row"><input type="file" id="imgfile" accept="image/*" /></div>
-      <div class="note" id="imgnote">Upload a passport photo/scan — flat and in focus works best (a photo of a screen will struggle).</div>
+      <div class="row">
+        <input type="file" id="imgfile" accept="image/*" />
+        <button id="takephoto">📷 Take photo</button>
+      </div>
+      <div class="note" id="imgnote">Upload a passport photo/scan, or take one with the camera — flat and in focus works best (a photo of a screen will struggle).</div>
+      <div id="camerawrap">
+        <video id="cameraVideo" autoplay playsinline muted></video>
+        <canvas id="cameraCanvas"></canvas>
+        <div class="camrow" id="focusrow" style="display:none">
+          <span class="note" style="margin:0">Focus</span>
+          <input type="range" id="focusRange" min="0" max="1" step="0.01" />
+        </div>
+        <div class="camrow">
+          <button id="capturephoto" class="primary">Capture</button>
+          <button id="cancelphoto">Cancel</button>
+          <span class="note" id="camnote" style="margin:0"></span>
+        </div>
+      </div>
       <div id="previewwrap" style="display:none; margin-top:8px">
         <div class="note">Drag a box around the 2–3 MRZ lines at the bottom of the passport, then “Read selection”.</div>
         <canvas id="preview" style="margin-top:6px"></canvas>
