@@ -25,10 +25,15 @@
       marginRight: "12px", lineHeight: "0", display: "inline-flex", alignItems: "center",
     });
 
+    // Match the height of the neighbouring Mews header icon buttons.
+    const sib = bar.querySelector("button");
+    const h = (sib && Math.round(sib.getBoundingClientRect().height)) || 40;
+    btn.style.height = h + "px";
+
     const img = document.createElement("img");
     img.src = chrome.runtime.getURL("images/scan-fill-button.png");
     img.alt = "Scan & Fill";
-    Object.assign(img.style, { height: "34px", width: "auto", display: "block" });
+    Object.assign(img.style, { height: h + "px", width: "auto", display: "block" });
     btn.appendChild(img);
 
     // Acts exactly like the popup's "Choose File": open the picker here (a real
