@@ -31,13 +31,43 @@
     Object.assign(img.style, { height: "34px", width: "auto", display: "block" });
     btn.appendChild(img);
 
+    // Acts exactly like the popup's "Choose File": open the picker here (a real
+    // user click), then hand the image to the popup, which opens and scans it.
     btn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      chrome.runtime.sendMessage({ action: "openPopup" });
+      pickFile();
     });
 
     bar.insertBefore(btn, bar.firstChild); // far-left of the header actions
+  }
+
+  function pickFile() {
+    let input = document.getElementById("frendz-file-input");
+    if (!input) {
+      input = document.createElement("input");
+      input.type = "file";
+      input.accept = "image/*";
+      input.id = "frendz-file-input";
+      input.style.display = "none";
+      input.addEventListener("change", onFileChosen);
+      document.body.appendChild(input);
+    }
+    input.value = "";
+    input.click(); // valid: triggered by the button's user click
+  }
+
+  function onFileChosen(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    // Open the popup right away (while the gesture is fresh), then stash the image;
+    // the popup polls storage for it.
+    chrome.runtime.sendMessage({ action: "openPopup" });
+    const reader = new FileReader();
+    reader.onload = () => {
+      chrome.storage.local.set({ pendingImage: { dataUrl: reader.result, name: file.name, ts: Date.now() } });
+    };
+    reader.readAsDataURL(file);
   }
 
   inject();

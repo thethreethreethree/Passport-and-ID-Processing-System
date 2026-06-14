@@ -47,48 +47,84 @@ function drawPreview() {
   }
 }
 
+// Load an image into the preview + run the auto-OCR attempt. Shared by the file
+// picker and the in-page "Scan & Fill" hand-off.
+async function startScan(img) {
+  if (typeof Tesseract === "undefined" || !window.OCR) {
+    $("#imgnote").textContent =
+      "OCR assets aren't installed — run scripts/fetch-ocr-assets, then reload. You can still paste the MRZ below.";
+    return;
+  }
+  sel = null;
+  previewImg = img;
+  const c = document.getElementById("preview");
+  const dispW = Math.min(previewImg.width, 640);
+  previewScale = dispW / previewImg.width;
+  c.width = dispW;
+  c.height = Math.round(previewImg.height * previewScale);
+  drawPreview();
+  $("#previewwrap").style.display = "";
+
+  $("#status").textContent = "Trying to read automatically… first run loads the model (~10s).";
+  try {
+    const result = await window.OCR.recognizeMRZ(previewImg, ocrProgress);
+    if (result.text) {
+      applyOcrText(result.text); // surface raw OCR text in the box + attempt parse
+      if (result.parsed && result.parsed.valid)
+        $("#status").textContent = "Read automatically — checksums valid. Review, then Fill form.";
+      else
+        $("#status").textContent =
+          "OCR read the text now in the box but couldn't validate it. Draw a tighter box around the MRZ → Read selection — or copy that text to me so I can fix the reader.";
+    } else {
+      $("#status").textContent =
+        "OCR found no MRZ-like text. Drag a box around the 2 MRZ lines, then “Read selection”.";
+    }
+  } catch (e) {
+    $("#status").textContent = "OCR error: " + e.message;
+  }
+}
+
+function dataUrlToImage(dataUrl) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("bad image data"));
+    img.src = dataUrl;
+  });
+}
+
 if (imgEl)
   imgEl.addEventListener("change", async () => {
     const file = imgEl.files && imgEl.files[0];
     if (!file) return;
-    if (typeof Tesseract === "undefined" || !window.OCR) {
-      $("#imgnote").textContent =
-        "OCR assets aren't installed — run scripts/fetch-ocr-assets, then reload. You can still paste the MRZ below.";
-      return;
-    }
-    sel = null;
     try {
-      previewImg = await window.OCR.fileToImage(file);
+      await startScan(await window.OCR.fileToImage(file));
     } catch (e) {
       $("#status").textContent = "Couldn't load image: " + e.message;
-      return;
-    }
-    const c = document.getElementById("preview");
-    const dispW = Math.min(previewImg.width, 640);
-    previewScale = dispW / previewImg.width;
-    c.width = dispW;
-    c.height = Math.round(previewImg.height * previewScale);
-    drawPreview();
-    $("#previewwrap").style.display = "";
-
-    $("#status").textContent = "Trying to read automatically… first run loads the model (~10s).";
-    try {
-      const result = await window.OCR.recognizeMRZ(previewImg, ocrProgress);
-      if (result.text) {
-        applyOcrText(result.text); // surface raw OCR text in the box + attempt parse
-        if (result.parsed && result.parsed.valid)
-          $("#status").textContent = "Read automatically — checksums valid. Review, then Fill form.";
-        else
-          $("#status").textContent =
-            "OCR read the text now in the box but couldn't validate it. Draw a tighter box around the MRZ → Read selection — or copy that text to me so I can fix the reader.";
-      } else {
-        $("#status").textContent =
-          "OCR found no MRZ-like text. Drag a box around the 2 MRZ lines, then “Read selection”.";
-      }
-    } catch (e) {
-      $("#status").textContent = "OCR error: " + e.message;
     }
   });
+
+// If the in-page "Scan & Fill" button handed us a picked image, load + scan it.
+// Poll briefly in case the popup opened slightly before the image was stored.
+(function consumePendingImage() {
+  if (!chrome.storage || !chrome.storage.local) return;
+  let tries = 0;
+  const check = () => {
+    chrome.storage.local.get("pendingImage", async (data) => {
+      const p = data && data.pendingImage;
+      if (p && p.dataUrl) {
+        chrome.storage.local.remove("pendingImage");
+        if (Date.now() - (p.ts || 0) <= 120000) {
+          try { await startScan(await dataUrlToImage(p.dataUrl)); }
+          catch (e) { $("#status").textContent = "Couldn't load the scanned image: " + e.message; }
+        }
+        return;
+      }
+      if (++tries < 12) setTimeout(check, 250); // ~3s window for a just-picked image
+    });
+  };
+  check();
+})();
 
 // Drag-to-select on the preview canvas (display coords; mapped to source on read).
 (function setupSelection() {
