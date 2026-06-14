@@ -128,15 +128,21 @@
       <div id="camerawrap">
         <video id="cameraVideo" autoplay playsinline muted></video>
         <canvas id="cameraCanvas"></canvas>
-        <div class="camrow" id="focusrow" style="display:none">
-          <span class="note" style="margin:0">Focus</span>
-          <input type="range" id="focusRange" min="0" max="1" step="0.01" />
-        </div>
         <div class="camrow">
           <button id="capturephoto" class="primary">Capture</button>
+          <button id="retakephoto">Retake</button>
           <button id="cancelphoto">Cancel</button>
-          <span class="note" id="camnote" style="margin:0"></span>
         </div>
+        <div class="camrow">
+          <button id="focusauto">Auto focus</button>
+          <button id="focusfix">Fix focus</button>
+          <button id="focusrelease">Release focus</button>
+        </div>
+        <div class="camrow" id="focusrow" style="display:none">
+          <span class="note" style="margin:0">Manual</span>
+          <input type="range" id="focusRange" min="0" max="1" step="0.01" />
+        </div>
+        <div class="note" id="camnote"></div>
       </div>
       <div id="previewwrap" style="display:none; margin-top:8px">
         <div class="note">Drag a box around the 2–3 MRZ lines at the bottom of the passport, then “Read selection”.</div>

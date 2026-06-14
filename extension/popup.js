@@ -252,12 +252,38 @@ async function capturePhoto() {
   catch (e) { $("#status").textContent = "Couldn't process photo: " + e.message; }
 }
 
+// Focus controls — apply a focusMode constraint if the camera supports it.
+function applyFocus(modes, extra) {
+  const camnote = document.getElementById("camnote");
+  const track = cameraStream && cameraStream.getVideoTracks()[0];
+  if (!track) return;
+  const caps = track.getCapabilities ? track.getCapabilities() : {};
+  const supported = (caps.focusMode || []).filter((m) => modes.includes(m));
+  if (!supported.length) {
+    if (camnote) camnote.textContent = "This camera doesn’t support that focus mode.";
+    return;
+  }
+  const mode = supported[0];
+  track
+    .applyConstraints({ advanced: [Object.assign({ focusMode: mode }, extra || {})] })
+    .then(() => { if (camnote) camnote.textContent = "Focus: " + mode + "."; })
+    .catch((e) => { if (camnote) camnote.textContent = "Focus change failed: " + e.message; });
+}
+
 const takePhotoBtn = document.getElementById("takephoto");
 if (takePhotoBtn) takePhotoBtn.addEventListener("click", startCamera);
 const capBtn = document.getElementById("capturephoto");
 if (capBtn) capBtn.addEventListener("click", capturePhoto);
+const retakeBtn = document.getElementById("retakephoto");
+if (retakeBtn) retakeBtn.addEventListener("click", () => { stopCamera(); startCamera(); });
 const cancelCamBtn = document.getElementById("cancelphoto");
 if (cancelCamBtn) cancelCamBtn.addEventListener("click", stopCamera);
+const fAuto = document.getElementById("focusauto");
+if (fAuto) fAuto.addEventListener("click", () => applyFocus(["continuous"]));
+const fFix = document.getElementById("focusfix");
+if (fFix) fFix.addEventListener("click", () => applyFocus(["single-shot", "manual"]));
+const fRel = document.getElementById("focusrelease");
+if (fRel) fRel.addEventListener("click", () => applyFocus(["continuous", "none"]));
 
 document.getElementById("readmrz").addEventListener("click", () => {
   const raw = $("#mrztext").value.trim();
@@ -329,6 +355,7 @@ async function injectFn(func, args) {
 async function runFill(plan, label) {
   $("#status").textContent = "Filling " + label + "…";
   try {
+    await focusTargetTab();
     const report = await fillOnce(plan);
     lastReport = report;
     $("#out").textContent = JSON.stringify(report, null, 2);
@@ -349,6 +376,7 @@ async function fillSectionInteractive(headingText, anchorFieldId, plan, label) {
   if (!parsedRecord) return;
   $("#status").textContent = `${label}: opening + filling…`;
   try {
+    await focusTargetTab();
     // Auto-open the section's + form (unless it's already open), then fill it.
     if (!(await injectFn(fieldExists, [anchorFieldId]))) {
       const opened = await injectFn(openSectionAdd, [headingText]);
@@ -389,6 +417,18 @@ async function getActiveTab() {
   }
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   return tab;
+}
+
+// Bring the Mews tab to the front before filling. Background tabs get throttled
+// (React pauses), which makes modals not initialise and value-sets not register.
+// The dashboard window stays open — it's just no longer the focused window.
+async function focusTargetTab() {
+  if (TARGET_TAB_ID == null) return;
+  try {
+    await chrome.tabs.update(TARGET_TAB_ID, { active: true });
+    const t = await chrome.tabs.get(TARGET_TAB_ID);
+    if (t && t.windowId != null) await chrome.windows.update(t.windowId, { focused: true });
+  } catch (e) {}
 }
 
 // Inject a self-contained function into every frame of the active tab and
