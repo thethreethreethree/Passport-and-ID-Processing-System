@@ -197,12 +197,24 @@ function renderReview(res, plan) {
     "<table><tr><th>Field</th><th>Value</th><th>Confidence</th></tr>" + rows + "</table>";
 }
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function fillOnce(plan) {
+  const tab = await getActiveTab();
+  const [r] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: fillPlan, args: [plan] });
+  return r.result;
+}
+
+async function injectFn(func, args) {
+  const tab = await getActiveTab();
+  const [r] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func, args: args || [] });
+  return r.result;
+}
+
 async function runFill(plan, label) {
   $("#status").textContent = "Filling " + label + "…";
   try {
-    const tab = await getActiveTab();
-    const [r] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: fillPlan, args: [plan] });
-    const report = r.result;
+    const report = await fillOnce(plan);
     lastReport = report;
     $("#out").textContent = JSON.stringify(report, null, 2);
     const filled = report.results.filter((x) => x.ok).length;
@@ -216,14 +228,46 @@ async function runFill(plan, label) {
   }
 }
 
-document.getElementById("fillform").addEventListener("click", () => {
-  if (parsedPlan) runFill(parsedPlan, "Profile");
-});
+// Fill one modal section: skip if it already has a row, else open + → fill → save.
+async function fillSection(headingText, anchorFieldId, plan, log) {
+  const state = await injectFn(sectionState, [headingText]);
+  if (!state || !state.found) { log.push(`${headingText}: section not found`); return; }
+  if (!state.empty) { log.push(`${headingText}: skipped (already has a row)`); return; }
 
+  const opened = await injectFn(openSectionAdd, [headingText]);
+  if (!opened || !opened.clicked) { log.push(`${headingText}: + button not found`); return; }
+
+  const appeared = await injectFn(waitForField, [anchorFieldId, 4000]);
+  if (!appeared) { log.push(`${headingText}: add form didn’t open`); return; }
+
+  const report = await fillOnce(plan);
+  const filled = report.results.filter((x) => x.ok).length;
+  await sleep(250);
+  const saved = await injectFn(submitForm, [anchorFieldId]);
+  log.push(`${headingText}: filled ${filled}` + (saved && saved.clicked ? ` + saved [${saved.buttonText}]` : " (SAVE not found — save manually)"));
+  await sleep(1000); // let the modal close before the next section
+}
+
+async function fillAll() {
+  if (!parsedRecord || !parsedPlan) return;
+  $("#status").textContent = "Filling everything — watch the page…";
+  const log = [];
+  try {
+    const pr = await fillOnce(parsedPlan);
+    log.push(`Profile: filled ${pr.results.filter((x) => x.ok).length}`);
+    await fillSection("Identity documents", "number", window.Mappers.buildIdentityDocPlan(parsedRecord, { currentYear: 2026 }), log);
+    await fillSection("Addresses", "addressLine1", window.Mappers.buildAddressPlan(parsedRecord), log);
+    $("#out").textContent = JSON.stringify({ steps: log }, null, 2);
+    $("#status").textContent = log.join("  ·  ");
+  } catch (e) {
+    $("#status").textContent = "Fill all error: " + e.message;
+  }
+}
+
+document.getElementById("fillform").addEventListener("click", fillAll);
 document.getElementById("filliddoc").addEventListener("click", () => {
   if (parsedRecord) runFill(window.Mappers.buildIdentityDocPlan(parsedRecord, { currentYear: 2026 }), "Identity document");
 });
-
 document.getElementById("filladdress").addEventListener("click", () => {
   if (parsedRecord) runFill(window.Mappers.buildAddressPlan(parsedRecord), "Address");
 });
@@ -653,6 +697,79 @@ async function fillPlan(plan) {
   }
 
   return { url: location.href, filledAt: new Date().toString(), results };
+}
+
+// --- Section orchestration helpers (injected; self-contained) ---
+
+// Find a section's card by its heading text (walk up to the nearest ancestor
+// that holds the section's table / empty-state).
+function _findSectionCard(headingText) {
+  const norm = (s) => (s || "").replace(/\s+/g, " ").trim();
+  const heading = [...document.querySelectorAll("h1,h2,h3,h4,h5,div,span,p")].find(
+    (e) => e.children.length === 0 && norm(e.textContent) === headingText
+  );
+  if (!heading) return null;
+  let card = heading.parentElement;
+  for (let i = 0; i < 8 && card; i++) {
+    if (card.querySelector("table") || /no data available/i.test(card.textContent)) return { card, heading };
+    card = card.parentElement;
+  }
+  return { card: heading.parentElement, heading };
+}
+
+// Is the section empty (no existing row)?
+function sectionState(headingText) {
+  const found = _findSectionCard(headingText);
+  if (!found) return { found: false };
+  const text = found.card.textContent || "";
+  const noData = /no data available/i.test(text);
+  const rows = found.card.querySelectorAll("tbody tr").length;
+  return { found: true, empty: noData || rows === 0, rows, noData };
+}
+
+// Click the section's "+" add button (the icon button on the heading's row).
+function openSectionAdd(headingText) {
+  const found = _findSectionCard(headingText);
+  if (!found) return { clicked: false, reason: "section not found" };
+  const isVis = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+  const hy = found.heading.getBoundingClientRect().top;
+  const btns = [...found.card.querySelectorAll("button")].filter((b) => /IconButton/.test(b.className) && isVis(b));
+  if (!btns.length) return { clicked: false, reason: "no icon button in section" };
+  btns.sort((a, b) => Math.abs(a.getBoundingClientRect().top - hy) - Math.abs(b.getBoundingClientRect().top - hy));
+  const add = btns[0];
+  add.scrollIntoView({ block: "center" });
+  ["mousedown", "mouseup", "click"].forEach((t) => add.dispatchEvent(new MouseEvent(t, { bubbles: true })));
+  return { clicked: true, dy: Math.round(add.getBoundingClientRect().top - hy) };
+}
+
+// Wait for a field id to appear (the modal has opened).
+async function waitForField(id, timeout) {
+  const end = Date.now() + timeout;
+  while (Date.now() < end) {
+    const el = document.getElementById(id);
+    if (el && el.getBoundingClientRect().width > 0) return true;
+    await new Promise((r) => setTimeout(r, 80));
+  }
+  return false;
+}
+
+// Click the Save/submit button of the form that owns `anchorFieldId` (scoped so it
+// can't hit an unrelated primary button like "Merge").
+function submitForm(anchorFieldId) {
+  const field = document.getElementById(anchorFieldId);
+  if (!field) return { clicked: false, reason: "anchor field not found" };
+  let scope = field.closest("form");
+  if (!scope) scope = field.closest('[role="dialog"], [class*="odal"], [class*="ialog"]');
+  if (!scope) return { clicked: false, reason: "no form/dialog scope" };
+  let btn = scope.querySelector('button[type="submit"]');
+  if (!btn) {
+    const re = /^(save|add|create|confirm|ok|add identity document|add address)$/i;
+    btn = [...scope.querySelectorAll("button")].find((b) => re.test((b.textContent || "").trim()));
+  }
+  if (!btn) return { clicked: false, reason: "no save button" };
+  btn.scrollIntoView({ block: "center" });
+  ["mousedown", "mouseup", "click"].forEach((t) => btn.dispatchEvent(new MouseEvent(t, { bubbles: true })));
+  return { clicked: true, buttonText: (btn.textContent || "").trim().slice(0, 30) };
 }
 
 // Capture a custom-combobox option list. Two-step so the capture survives the
