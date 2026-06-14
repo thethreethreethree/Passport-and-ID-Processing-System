@@ -270,26 +270,17 @@ async function fillSectionInteractive(headingText, anchorFieldId, plan, label) {
   if (!parsedRecord) return;
   $("#status").textContent = `${label}: opening + filling…`;
   try {
-    // Already-open form (user opened it, or an edit form) — just fill it.
-    if (await injectFn(fieldExists, [anchorFieldId])) {
-      await runFill(plan, label);
-      $("#status").textContent = `${label}: filled — review and click Save in Mews.`;
-      return;
+    // Auto-open the section's + form (unless it's already open), then fill it.
+    if (!(await injectFn(fieldExists, [anchorFieldId]))) {
+      const opened = await injectFn(openSectionAdd, [headingText]);
+      if (!opened || !opened.clicked) {
+        $("#out").textContent = JSON.stringify({ openSectionAdd: opened }, null, 2);
+        $("#status").textContent = `${label}: couldn’t find the + button (${(opened && opened.reason) || "?"}) — expand Recon tools for details.`;
+        return;
+      }
+      const appeared = await injectFn(waitForField, [anchorFieldId, 4000]);
+      if (!appeared) { $("#status").textContent = `${label}: the + form didn’t open.`; return; }
     }
-    // Otherwise check the section and auto-open its + form.
-    const state = await injectFn(sectionState, [headingText]);
-    if (state && state.found && !state.empty) {
-      $("#status").textContent = `${label}: already has a row. To add another, open its + form, then click again.`;
-      return;
-    }
-    const opened = await injectFn(openSectionAdd, [headingText]);
-    if (!opened || !opened.clicked) {
-      $("#out").textContent = JSON.stringify({ sectionState: state, openSectionAdd: opened }, null, 2);
-      $("#status").textContent = `${label}: couldn’t find the + button (${(opened && opened.reason) || "?"}) — see Recon box.`;
-      return;
-    }
-    const appeared = await injectFn(waitForField, [anchorFieldId, 4000]);
-    if (!appeared) { $("#status").textContent = `${label}: the + form didn’t open.`; return; }
     await runFill(plan, label);
     $("#status").textContent = `${label}: filled — review and click Save in Mews.`;
   } catch (e) {
@@ -758,31 +749,41 @@ function sectionState(headingText) {
   return { found: true, empty: noData || rows === 0, rows, noData };
 }
 
-// Click the section's "+" add button — found POSITIONALLY as the right-most
-// clickable on the heading's row (robust to hashed class names).
+// Click the section's "+" add button. Find the heading, walk up to the card
+// (nearest ancestor holding a button), then pick the right-most button on the
+// heading's row. Robust to hashed class names + layout differences.
 function openSectionAdd(headingText) {
   const norm = (s) => (s || "").replace(/\s+/g, " ").trim();
   const isVis = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
-  const heading = [...document.querySelectorAll("h1,h2,h3,h4,h5,h6,div,span,p,strong,b,label")]
-    .find((e) => e.children.length === 0 && norm(e.textContent) === headingText && isVis(e));
-  if (!heading) return { clicked: false, reason: "heading '" + headingText + "' not found" };
+  const sel = "h1,h2,h3,h4,h5,h6,div,span,p,strong,b,label";
+  const all = [...document.querySelectorAll(sel)];
+  let heading = all.find((e) => e.children.length === 0 && norm(e.textContent) === headingText && isVis(e));
+  if (!heading) heading = all.find((e) => e.children.length <= 1 && norm(e.textContent) === headingText && isVis(e));
+  if (!heading) {
+    const seen = [...new Set(all.filter((e) => e.children.length === 0 && isVis(e) && /document|address/i.test(e.textContent)).map((e) => norm(e.textContent)))].slice(0, 8);
+    return { clicked: false, reason: "heading '" + headingText + "' not found", diag: { similarHeadings: seen } };
+  }
   const hr = heading.getBoundingClientRect();
   const hcy = hr.top + hr.height / 2;
-  const cands = [...document.querySelectorAll('button, [role="button"], a[href]')]
-    .filter(isVis)
-    .map((el) => ({ el, r: el.getBoundingClientRect() }))
-    .filter((o) => Math.abs(o.r.top + o.r.height / 2 - hcy) <= 32 && o.r.left >= hr.right - 4)
-    .sort((a, b) => b.r.left - a.r.left); // right-most first
-  if (!cands.length) {
-    const near = [...document.querySelectorAll("button,[role=button]")].filter(isVis)
-      .map((el) => ({ y: Math.round(el.getBoundingClientRect().top), x: Math.round(el.getBoundingClientRect().left), cls: (el.className || "").toString().slice(0, 30) }))
-      .filter((o) => Math.abs(o.y - hcy) <= 120).slice(0, 12);
-    return { clicked: false, reason: "no button on heading row", diag: { headingY: Math.round(hcy), headingRight: Math.round(hr.right), nearbyButtons: near } };
+
+  // Walk up to the nearest ancestor that contains clickable buttons (the card).
+  let card = heading.parentElement, btns = [];
+  for (let i = 0; i < 8 && card; i++) {
+    btns = [...card.querySelectorAll('button, [role="button"], a[href]')].filter(isVis);
+    if (btns.length) break;
+    card = card.parentElement;
   }
-  const add = cands[0].el;
+  if (!btns.length) return { clicked: false, reason: "no button found near heading '" + headingText + "'" };
+
+  // Prefer buttons on the heading's row; among those, the right-most is the "+".
+  const onRow = btns.filter((b) => { const r = b.getBoundingClientRect(); return Math.abs(r.top + r.height / 2 - hcy) <= 36; });
+  const pool = (onRow.length ? onRow : btns).slice();
+  pool.sort((a, b) => b.getBoundingClientRect().left - a.getBoundingClientRect().left);
+  const add = pool[0];
   add.scrollIntoView({ block: "center" });
   ["mousedown", "mouseup", "click"].forEach((t) => add.dispatchEvent(new MouseEvent(t, { bubbles: true })));
-  return { clicked: true, picked: { x: Math.round(cands[0].r.left), cls: (add.className || "").toString().slice(0, 50) } };
+  const ar = add.getBoundingClientRect();
+  return { clicked: true, picked: { x: Math.round(ar.left), y: Math.round(ar.top), onRow: onRow.length, cls: (add.className || "").toString().slice(0, 40) } };
 }
 
 // Wait for a field id to appear (the modal has opened).
