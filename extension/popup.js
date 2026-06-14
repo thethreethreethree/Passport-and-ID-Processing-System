@@ -228,48 +228,43 @@ async function runFill(plan, label) {
   }
 }
 
-// Fill one modal section: skip if it already has a row, else open + → fill → save.
-async function fillSection(headingText, anchorFieldId, plan, log) {
-  const state = await injectFn(sectionState, [headingText]);
-  if (!state || !state.found) { log.push(`${headingText}: section not found`); return; }
-  if (!state.empty) { log.push(`${headingText}: skipped (already has a row)`); return; }
-
-  const opened = await injectFn(openSectionAdd, [headingText]);
-  if (!opened || !opened.clicked) { log.push(`${headingText}: + button not found`); return; }
-
-  const appeared = await injectFn(waitForField, [anchorFieldId, 4000]);
-  if (!appeared) { log.push(`${headingText}: add form didn’t open`); return; }
-
-  const report = await fillOnce(plan);
-  const filled = report.results.filter((x) => x.ok).length;
-  await sleep(250);
-  const saved = await injectFn(submitForm, [anchorFieldId]);
-  log.push(`${headingText}: filled ${filled}` + (saved && saved.clicked ? ` + saved [${saved.buttonText}]` : " (SAVE not found — save manually)"));
-  await sleep(1000); // let the modal close before the next section
-}
-
-async function fillAll() {
-  if (!parsedRecord || !parsedPlan) return;
-  $("#status").textContent = "Filling everything — watch the page…";
-  const log = [];
+// Auto-open a section's + form and fill it — then STOP so the user reviews and
+// clicks Save themselves. If the form is already open, just fill it. Never saves.
+async function fillSectionInteractive(headingText, anchorFieldId, plan, label) {
+  if (!parsedRecord) return;
+  $("#status").textContent = `${label}: opening + filling…`;
   try {
-    const pr = await fillOnce(parsedPlan);
-    log.push(`Profile: filled ${pr.results.filter((x) => x.ok).length}`);
-    await fillSection("Identity documents", "number", window.Mappers.buildIdentityDocPlan(parsedRecord, { currentYear: 2026 }), log);
-    await fillSection("Addresses", "addressLine1", window.Mappers.buildAddressPlan(parsedRecord), log);
-    $("#out").textContent = JSON.stringify({ steps: log }, null, 2);
-    $("#status").textContent = log.join("  ·  ");
+    // Already-open form (user opened it, or an edit form) — just fill it.
+    if (await injectFn(fieldExists, [anchorFieldId])) {
+      await runFill(plan, label);
+      $("#status").textContent = `${label}: filled — review and click Save in Mews.`;
+      return;
+    }
+    // Otherwise check the section and auto-open its + form.
+    const state = await injectFn(sectionState, [headingText]);
+    if (state && state.found && !state.empty) {
+      $("#status").textContent = `${label}: already has a row. To add another, open its + form, then click again.`;
+      return;
+    }
+    const opened = await injectFn(openSectionAdd, [headingText]);
+    if (!opened || !opened.clicked) { $("#status").textContent = `${label}: couldn’t find the + button.`; return; }
+    const appeared = await injectFn(waitForField, [anchorFieldId, 4000]);
+    if (!appeared) { $("#status").textContent = `${label}: the + form didn’t open.`; return; }
+    await runFill(plan, label);
+    $("#status").textContent = `${label}: filled — review and click Save in Mews.`;
   } catch (e) {
-    $("#status").textContent = "Fill all error: " + e.message;
+    $("#status").textContent = `${label} error: ` + e.message;
   }
 }
 
-document.getElementById("fillform").addEventListener("click", fillAll);
+document.getElementById("fillform").addEventListener("click", () => {
+  if (parsedPlan) runFill(parsedPlan, "Profile");
+});
 document.getElementById("filliddoc").addEventListener("click", () => {
-  if (parsedRecord) runFill(window.Mappers.buildIdentityDocPlan(parsedRecord, { currentYear: 2026 }), "Identity document");
+  fillSectionInteractive("Identity documents", "number", window.Mappers.buildIdentityDocPlan(parsedRecord, { currentYear: 2026 }), "Identity document");
 });
 document.getElementById("filladdress").addEventListener("click", () => {
-  if (parsedRecord) runFill(window.Mappers.buildAddressPlan(parsedRecord), "Address");
+  fillSectionInteractive("Addresses", "addressLine1", window.Mappers.buildAddressPlan(parsedRecord), "Address");
 });
 
 async function getActiveTab() {
@@ -753,23 +748,10 @@ async function waitForField(id, timeout) {
   return false;
 }
 
-// Click the Save/submit button of the form that owns `anchorFieldId` (scoped so it
-// can't hit an unrelated primary button like "Merge").
-function submitForm(anchorFieldId) {
-  const field = document.getElementById(anchorFieldId);
-  if (!field) return { clicked: false, reason: "anchor field not found" };
-  let scope = field.closest("form");
-  if (!scope) scope = field.closest('[role="dialog"], [class*="odal"], [class*="ialog"]');
-  if (!scope) return { clicked: false, reason: "no form/dialog scope" };
-  let btn = scope.querySelector('button[type="submit"]');
-  if (!btn) {
-    const re = /^(save|add|create|confirm|ok|add identity document|add address)$/i;
-    btn = [...scope.querySelectorAll("button")].find((b) => re.test((b.textContent || "").trim()));
-  }
-  if (!btn) return { clicked: false, reason: "no save button" };
-  btn.scrollIntoView({ block: "center" });
-  ["mousedown", "mouseup", "click"].forEach((t) => btn.dispatchEvent(new MouseEvent(t, { bubbles: true })));
-  return { clicked: true, buttonText: (btn.textContent || "").trim().slice(0, 30) };
+// Is a field present and visible (i.e. its form/modal is already open)?
+function fieldExists(id) {
+  const el = document.getElementById(id);
+  return !!(el && el.getBoundingClientRect().width > 0);
 }
 
 // Capture a custom-combobox option list. Two-step so the capture survives the
