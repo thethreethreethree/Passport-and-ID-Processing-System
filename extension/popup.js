@@ -6,6 +6,7 @@
 const $ = (sel) => document.querySelector(sel);
 let lastReport = null;
 let parsedPlan = null;
+let parsedRecord = null;
 
 const FIELD_LABELS = {
   titlePrefix: "Title", firstName: "First name", lastName: "Last name",
@@ -154,11 +155,14 @@ document.getElementById("readmrz").addEventListener("click", () => {
     $("#status").textContent = "Could not find MRZ lines: " + res.reason;
     return;
   }
+  parsedRecord = res.record;
   parsedPlan = window.Mappers.buildFillPlan(res.record, { currentYear: 2026 });
   renderReview(res, parsedPlan);
   $("#reviewcard").style.display = "";
   $("#fillform").disabled = false;
-  $("#status").textContent = "Parsed " + res.record.format + ". Review, then Fill form.";
+  $("#filliddoc").disabled = false;
+  $("#filladdress").disabled = false;
+  $("#status").textContent = "Parsed " + res.record.format + ". Review, then Fill.";
 });
 
 function renderReview(res, plan) {
@@ -193,21 +197,35 @@ function renderReview(res, plan) {
     "<table><tr><th>Field</th><th>Value</th><th>Confidence</th></tr>" + rows + "</table>";
 }
 
-document.getElementById("fillform").addEventListener("click", async () => {
-  if (!parsedPlan) return;
-  $("#status").textContent = "Filling…";
+async function runFill(plan, label) {
+  $("#status").textContent = "Filling " + label + "…";
   try {
     const tab = await getActiveTab();
-    const [r] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: fillPlan, args: [parsedPlan] });
+    const [r] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: fillPlan, args: [plan] });
     const report = r.result;
     lastReport = report;
     $("#out").textContent = JSON.stringify(report, null, 2);
     const filled = report.results.filter((x) => x.ok).length;
     const tried = report.results.filter((x) => x.attempted).length;
-    $("#status").textContent = `Filled ${filled}/${tried} field(s). Review the form; amber fields are guesses to confirm.`;
+    const missed = report.results.filter((x) => x.attempted && !x.ok).length;
+    $("#status").textContent =
+      `${label}: filled ${filled}/${tried} field(s).` +
+      (missed ? ` ${missed} couldn’t be set — is the right form open?` : " Confirm amber fields before saving.");
   } catch (e) {
     $("#status").textContent = "Error: " + e.message;
   }
+}
+
+document.getElementById("fillform").addEventListener("click", () => {
+  if (parsedPlan) runFill(parsedPlan, "Profile");
+});
+
+document.getElementById("filliddoc").addEventListener("click", () => {
+  if (parsedRecord) runFill(window.Mappers.buildIdentityDocPlan(parsedRecord, { currentYear: 2026 }), "Identity document");
+});
+
+document.getElementById("filladdress").addEventListener("click", () => {
+  if (parsedRecord) runFill(window.Mappers.buildAddressPlan(parsedRecord), "Address");
 });
 
 async function getActiveTab() {

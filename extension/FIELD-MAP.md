@@ -76,6 +76,33 @@ So mapping a combobox = mapping the passport datum → the option **`value` code
 - **Visual-zone OCR / manual only (2):** birthPlace, secondLastName
 - **Not from passport (2):** email, telephone
 
+## Identity documents — add form (opened via the `+` button)
+
+| Form field | id | Control | Source | Confidence |
+|---|---|---|---|---|
+| Number | `number` | text | MRZ `documentNumber` (own check digit) | high |
+| Type | `type` | combobox | MRZ doc code (P→`Passport`) → `#type-Passport` | high (value assumed) |
+| Issuing country | `issuingCountryCode` | combobox | MRZ issuing state (D→DE) → `#issuingCountryCode-DE` | high |
+| Expiration date | `expiryDateString` | text | MRZ `expiryDate` (future century) → MM/DD/YYYY | high |
+| Issue date | `issueDateString` | text | **not in MRZ** | manual |
+| Issuing city | `issuingCity` | text | not in MRZ | manual |
+| Mark as verified | `isVerified` | checkbox | human decision | manual (left alone) |
+
+> `type` option value is assumed `Passport`; the fill verifies `#type-Passport` exists before
+> clicking (fails safe). Capture the Type menu (Scan open menu) to confirm/extend other types.
+
+## Addresses — add form (opened via the `+` button)
+
+| Form field | id | Control | Source | Confidence |
+|---|---|---|---|---|
+| Country | `countryCode` | combobox | nationality (DE) → `#countryCode-DE` | low (guess) |
+| Address line 1/2 | `addressLine1`/`addressLine2` | text | not on passport | manual |
+| City | `city` | text | not on passport | manual |
+| Postal code | `postalCode` | text | not on passport | manual |
+
+> The identity-doc and address forms render in the main frame, so the same fill engine
+> (text + combobox-click-by-id) targets them once the `+` form is open.
+
 ## Out-of-scope fields on this page (ignore for auto-fill)
 
 `Search` box, `taxIdentifier`, `carRegistrationNumber`, `occupation`, `companyFieldId`,

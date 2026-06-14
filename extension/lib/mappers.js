@@ -60,16 +60,17 @@
     return null;
   }
 
-  // YYMMDD (no century) -> target format, inferring century so the date isn't
-  // in the future (standard MRZ DOB rule). `format` default matches observed Mews value.
+  // YYMMDD (no century) -> target format. Birth dates infer century so the date
+  // isn't in the future; with opts.future (expiry) the date is allowed to be future
+  // (always 20YY this century). `format` default matches observed Mews value.
   function formatBirthDate(yymmdd, opts) {
     opts = opts || {};
     const m = /^(\d{2})(\d{2})(\d{2})$/.exec(yymmdd || "");
-    if (!m) return { ok: false, reason: "bad DOB digits (" + yymmdd + ")" };
+    if (!m) return { ok: false, reason: "bad date digits (" + yymmdd + ")" };
     const yy = +m[1], mm = +m[2], dd = +m[3];
     const currentYear = opts.currentYear || 2026;
     let year = 2000 + yy;
-    if (year > currentYear) year = 1900 + yy; // future -> previous century
+    if (!opts.future && year > currentYear) year = 1900 + yy; // birth: future -> previous century
     if (mm < 1 || mm > 12 || dd < 1 || dd > 31)
       return { ok: false, reason: "invalid month/day", year, mm, dd };
     const fmt = opts.format || "MM/DD/YYYY";
@@ -165,8 +166,81 @@
     return plan;
   }
 
+  // MRZ document code -> Mews "type" option value. First char: P=passport,
+  // I/A/C=national ID card, V=visa. Only map what we're confident about.
+  function mapDocType(documentCode) {
+    const c = (documentCode || "").toUpperCase().charAt(0);
+    if (c === "P") return "Passport";
+    if (c === "I" || c === "A" || c === "C") return "IdentityCard";
+    if (c === "V") return "Visa";
+    return null;
+  }
+
+  // Plan for the Identity-documents add form (Number / Type / Issuing country /
+  // Expiration). Issue date + city + verification are not in the MRZ.
+  function buildIdentityDocPlan(record, opts) {
+    opts = opts || {};
+    const chk = record.checks || null;
+    const ck = (n) => !chk || (chk[n] && chk[n].valid);
+    const plan = [];
+    const add = (e) => plan.push(e);
+
+    add({
+      fieldId: "number", kind: "text", value: record.documentNumber || "",
+      confidence: record.documentNumber ? (ck("documentNumber") ? "high" : "low") : "low",
+      source: "mrz",
+      note: record.documentNumber ? (ck("documentNumber") ? undefined : "document-number checksum failed — verify") : "no document number in MRZ",
+    });
+
+    const docType = mapDocType(record.documentCode);
+    add({
+      fieldId: "type", kind: "combobox", value: docType, optionId: docType ? "type-" + docType : null,
+      confidence: docType === "Passport" ? "high" : docType ? "low" : "low", source: "mrz",
+      note: docType ? (docType === "Passport" ? undefined : "document type guessed from code " + record.documentCode + " — verify") : "unknown document type (" + record.documentCode + ")",
+    });
+
+    const iss = nationalityToAlpha2(record.issuingState);
+    add({
+      fieldId: "issuingCountryCode", kind: "combobox", value: iss.alpha2,
+      optionId: iss.alpha2 ? "issuingCountryCode-" + iss.alpha2 : null,
+      confidence: iss.ok ? "high" : "low", source: "mrz",
+      note: iss.ok ? undefined : "could not map issuing country: " + iss.reason,
+    });
+
+    const exp = formatBirthDate(record.expiryDate, { currentYear: opts.currentYear, future: true });
+    add({
+      fieldId: "expiryDateString", kind: "text", value: exp.ok ? exp.value : "",
+      confidence: exp.ok ? (ck("expiryDate") ? "high" : "low") : "low", source: "mrz",
+      note: exp.ok ? (ck("expiryDate") ? undefined : "expiry checksum failed — verify") : "could not format expiry: " + exp.reason,
+    });
+
+    add({ fieldId: "issueDateString", kind: "text", value: "", confidence: "manual", source: "none",
+      note: "issue date is not in the MRZ — enter manually" });
+    add({ fieldId: "issuingCity", kind: "text", value: "", confidence: "manual", source: "none",
+      note: "not in MRZ — manual" });
+    return plan;
+  }
+
+  // Plan for the Addresses add form. A passport carries no address — only the
+  // country is inferable (= nationality), and even that is a guess.
+  function buildAddressPlan(record) {
+    const nat = nationalityToAlpha2(record.nationality);
+    return [
+      {
+        fieldId: "countryCode", kind: "combobox", value: nat.alpha2,
+        optionId: nat.alpha2 ? "countryCode-" + nat.alpha2 : null,
+        confidence: nat.ok ? "low" : "manual", source: "derived",
+        note: "assumed = nationality; a passport has no address — confirm",
+      },
+      { fieldId: "addressLine1", kind: "text", value: "", confidence: "manual", source: "none", note: "not on passport — manual" },
+      { fieldId: "city", kind: "text", value: "", confidence: "manual", source: "none", note: "not on passport — manual" },
+      { fieldId: "postalCode", kind: "text", value: "", confidence: "manual", source: "none", note: "not on passport — manual" },
+    ];
+  }
+
   const api = {
-    A3_A2, nationalityToAlpha2, sexToGender, sexToTitle, formatBirthDate, buildFillPlan,
+    A3_A2, nationalityToAlpha2, sexToGender, sexToTitle, mapDocType,
+    formatBirthDate, buildFillPlan, buildIdentityDocPlan, buildAddressPlan,
   };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.Mappers = api;

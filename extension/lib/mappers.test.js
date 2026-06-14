@@ -78,6 +78,27 @@ check("failed-checksum: birthDate stays high (own check valid)", pp.birthDate.co
 const goodRec = { ...partialRec, checks: { documentNumber: { valid: true }, birthDate: { valid: true }, expiryDate: { valid: true }, personalNumber: { valid: true }, composite: { valid: true } } };
 const gp = Object.fromEntries(M.buildFillPlan(goodRec, { currentYear: 2026 }).map((e) => [e.fieldId, e]));
 check("valid record: lastName stays high", gp.lastName.confidence === "high", gp.lastName.confidence);
+
+// --- Identity document + Address plans (from the real Sayar MRZ) ---
+const sl1 = "P<D<<SAYAR<<AHMET<ALI".padEnd(44, "<");
+const sl2 = "C5L80V3PY7D<<9008157M2912224<<<<<<<<<<<<<<<8";
+const sayar = MRZ.parse(sl1 + "\n" + sl2).record;
+
+check("expiry future date 291222 -> 12/22/2029", M.formatBirthDate("291222", { currentYear: 2026, future: true }).value === "12/22/2029");
+check("mapDocType P -> Passport", M.mapDocType("P") === "Passport");
+
+const idp = Object.fromEntries(M.buildIdentityDocPlan(sayar, { currentYear: 2026 }).map((e) => [e.fieldId, e]));
+check("iddoc number = C5L80V3PY", idp.number.value === "C5L80V3PY", idp.number.value);
+check("iddoc number high (own checksum)", idp.number.confidence === "high");
+check("iddoc type -> type-Passport", idp.type.optionId === "type-Passport", idp.type.optionId);
+check("iddoc issuingCountry -> issuingCountryCode-DE", idp.issuingCountryCode.optionId === "issuingCountryCode-DE", idp.issuingCountryCode.optionId);
+check("iddoc expiry = 12/22/2029", idp.expiryDateString.value === "12/22/2029", idp.expiryDateString.value);
+check("iddoc issueDate is manual (not in MRZ)", idp.issueDateString.confidence === "manual");
+
+const adp = Object.fromEntries(M.buildAddressPlan(sayar).map((e) => [e.fieldId, e]));
+check("address country -> countryCode-DE", adp.countryCode.optionId === "countryCode-DE", adp.countryCode.optionId);
+check("address country low confidence (guess)", adp.countryCode.confidence === "low");
+check("address line1 is manual", adp.addressLine1.confidence === "manual");
 check("secondLastName flagged manual", byId.secondLastName.confidence === "manual");
 
 console.log(`\n${pass} passed, ${fail} failed`);
