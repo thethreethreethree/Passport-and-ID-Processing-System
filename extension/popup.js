@@ -254,8 +254,10 @@ $("#scan").addEventListener("click", async () => {
       .filter((fr) => fr.fields);
 
     const fields = [];
+    const buttons = [];
     frames.forEach((fr) => {
       (fr.fields || []).forEach((f) => fields.push({ frameId: fr.frameId, ...f }));
+      (fr.buttons || []).forEach((b) => buttons.push({ frameId: fr.frameId, ...b }));
     });
 
     lastReport = {
@@ -267,10 +269,12 @@ $("#scan").addEventListener("click", async () => {
       },
       fieldCount: fields.length,
       fields,
+      buttonCount: buttons.length,
+      buttons,
     };
 
     $("#out").textContent = JSON.stringify(lastReport, null, 2);
-    $("#status").textContent = `Found ${fields.length} field(s) across ${frames.length} frame(s).`;
+    $("#status").textContent = `Found ${fields.length} field(s), ${buttons.length} button(s) across ${frames.length} frame(s).`;
   } catch (e) {
     $("#status").textContent = "Error: " + e.message;
   }
@@ -488,7 +492,32 @@ function scanFields() {
     };
   });
 
-  return { url: location.href, title: document.title, fields };
+  // Also capture clickable buttons (the "+" add buttons, modal Save buttons).
+  const clickables = [...document.querySelectorAll('button, [role="button"], a[href], input[type="button"], input[type="submit"]')];
+  const buttons = clickables.filter(isVisible).slice(0, 100).map((el, i) => {
+    const aria = el.getAttribute("aria-label") || "";
+    const title = el.getAttribute("title") || "";
+    const text = clean(el.innerText || el.textContent || "");
+    const r = el.getBoundingClientRect();
+    const sel = {};
+    if (uniqueById(el)) sel.byId = "#" + esc(el.id);
+    if (aria) sel.byAriaLabel = `${el.tagName.toLowerCase()}[aria-label="${aria}"]`;
+    sel.cssPath = cssPath(el);
+    return {
+      index: i,
+      tag: el.tagName.toLowerCase(),
+      text: text.slice(0, 50),
+      ariaLabel: aria || null,
+      title: title || null,
+      id: el.id || null,
+      type: el.getAttribute("type") || null,
+      classList: typeof el.className === "string" ? el.className : null,
+      rect: { x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) },
+      selectors: sel,
+    };
+  });
+
+  return { url: location.href, title: document.title, fields, buttons };
 }
 
 function highlightFields() {
