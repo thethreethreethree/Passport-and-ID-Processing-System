@@ -96,9 +96,12 @@ So mapping a combobox = mapping the passport datum → the option **`value` code
 | Form field | id | Control | Source | Confidence |
 |---|---|---|---|---|
 | Country | `countryCode` | combobox | nationality (DE) → `#countryCode-DE` | low (guess) |
-| Address line 1/2 | `addressLine1`/`addressLine2` | text | not on passport | manual |
-| City | `city` | text | not on passport | manual |
-| Postal code | `postalCode` | text | not on passport | manual |
+| Address line 1/2 | `addressLine1`/`addressLine2` | text | **`N/A` placeholder** (house convention) | low |
+| City | `city` | text | **`N/A` placeholder** | low |
+| Postal code | `postalCode` | text | **`N/A` placeholder** | low |
+
+> Placeholder text is the `ADDRESS_PLACEHOLDER` constant (`"N/A"`) in `lib/mappers.js`.
+> The "Find address" autocomplete search box is intentionally left untouched.
 
 > The identity-doc and address forms render in the main frame, so the same fill engine
 > (text + combobox-click-by-id) targets them once the `+` form is open.

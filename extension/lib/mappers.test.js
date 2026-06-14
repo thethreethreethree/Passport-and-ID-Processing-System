@@ -98,7 +98,10 @@ check("iddoc issueDate is manual (not in MRZ)", idp.issueDateString.confidence =
 const adp = Object.fromEntries(M.buildAddressPlan(sayar).map((e) => [e.fieldId, e]));
 check("address country -> countryCode-DE", adp.countryCode.optionId === "countryCode-DE", adp.countryCode.optionId);
 check("address country low confidence (guess)", adp.countryCode.confidence === "low");
-check("address line1 is manual", adp.addressLine1.confidence === "manual");
+check("address line1 = N/A placeholder", adp.addressLine1.value === "N/A", adp.addressLine1.value);
+check("address line2 = N/A placeholder", adp.addressLine2.value === "N/A", adp.addressLine2.value);
+check("address city = N/A placeholder", adp.city.value === "N/A", adp.city.value);
+check("address postalCode = N/A placeholder", adp.postalCode.value === "N/A", adp.postalCode.value);
 check("secondLastName flagged manual", byId.secondLastName.confidence === "manual");
 
 console.log(`\n${pass} passed, ${fail} failed`);

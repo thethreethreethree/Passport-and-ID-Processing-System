@@ -221,20 +221,30 @@
     return plan;
   }
 
-  // Plan for the Addresses add form. A passport carries no address — only the
-  // country is inferable (= nationality), and even that is a guess.
-  function buildAddressPlan(record) {
+  // Plan for the Addresses add form. A passport carries no address, so the text
+  // fields are filled with an "N/A" placeholder (house convention) and Country is
+  // inferred from nationality. The "Find address" search box is intentionally not
+  // touched (it's an autocomplete, not a saved field).
+  const ADDRESS_PLACEHOLDER = "N/A";
+  function buildAddressPlan(record, opts) {
+    opts = opts || {};
+    const na = opts.placeholder || ADDRESS_PLACEHOLDER;
     const nat = nationalityToAlpha2(record.nationality);
+    const placeholder = (fieldId) => ({
+      fieldId, kind: "text", value: na, confidence: "low", source: "default",
+      note: "placeholder (not applicable) — edit if a real address is known",
+    });
     return [
+      placeholder("addressLine1"),
+      placeholder("addressLine2"),
+      placeholder("city"),
+      placeholder("postalCode"),
       {
         fieldId: "countryCode", kind: "combobox", value: nat.alpha2,
         optionId: nat.alpha2 ? "countryCode-" + nat.alpha2 : null,
         confidence: nat.ok ? "low" : "manual", source: "derived",
         note: "assumed = nationality; a passport has no address — confirm",
       },
-      { fieldId: "addressLine1", kind: "text", value: "", confidence: "manual", source: "none", note: "not on passport — manual" },
-      { fieldId: "city", kind: "text", value: "", confidence: "manual", source: "none", note: "not on passport — manual" },
-      { fieldId: "postalCode", kind: "text", value: "", confidence: "manual", source: "none", note: "not on passport — manual" },
     ];
   }
 
