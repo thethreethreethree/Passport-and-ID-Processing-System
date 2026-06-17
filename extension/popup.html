@@ -120,6 +120,13 @@
   <div class="wrap">
     <div class="card">
       <div class="step"><span class="n">1</span> Read the document</div>
+      <div class="row" style="margin-bottom:8px">
+        <label class="note" style="margin:0">Document:</label>
+        <select id="doctype" style="font:inherit; font-size:12px; padding:6px 8px; border:1px solid var(--line); border-radius:8px; color:var(--ink)">
+          <option value="passport">Passport (MRZ)</option>
+          <option value="lto-license">PH Driver's License</option>
+        </select>
+      </div>
       <div class="row">
         <input type="file" id="imgfile" accept="image/*" />
         <button id="takephoto">📷 Take photo</button>
@@ -188,6 +195,7 @@
   <script src="lib/tesseract/tesseract.min.js"></script>
   <script src="lib/mrz.js"></script>
   <script src="lib/correct.js"></script>
+  <script src="lib/idparse.js"></script>
   <script src="lib/mappers.js"></script>
   <script src="lib/ocr.js"></script>
   <script src="popup.js"></script>

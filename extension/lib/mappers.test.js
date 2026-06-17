@@ -98,6 +98,29 @@ check("iddoc issueDate is manual (not in MRZ)", idp.issueDateString.confidence =
 const adp = Object.fromEntries(M.buildAddressPlan(sayar).map((e) => [e.fieldId, e]));
 check("address country -> countryCode-DE", adp.countryCode.optionId === "countryCode-DE", adp.countryCode.optionId);
 check("address country low confidence (guess)", adp.countryCode.confidence === "low");
+check("PHL -> PH", M.nationalityToAlpha2("PHL").alpha2 === "PH");
+
+// --- PH driver's license (no MRZ) -> Mews plans ---
+const idRec = {
+  docType: "lto-license", documentLabel: "Driver's license",
+  surname: "DAGOT", firstName: "BENZON", middleName: "MAGURA",
+  nationality: "PHL", sex: "M", birthDate: "11/03/1996",
+  documentNumber: "D56-25-002138", expiry: "11/03/2029", address: "EL NIDO",
+};
+const ipp = Object.fromEntries(M.buildIdProfilePlan(idRec).map((e) => [e.fieldId, e]));
+check("id profile firstName=BENZON", ipp.firstName.value === "BENZON");
+check("id profile lastName=DAGOT", ipp.lastName.value === "DAGOT");
+check("id profile secondLastName=MAGURA (middle)", ipp.secondLastName.value === "MAGURA");
+check("id profile nationality-PH", ipp.nationality.optionId === "nationality-PH", ipp.nationality.optionId);
+check("id profile gender-Male", ipp.gender.optionId === "gender-Male");
+check("id profile birthDate=11/03/1996", ipp.birthDate.value === "11/03/1996");
+check("id profile all low-confidence (no checksum)", ipp.firstName.confidence === "low" && ipp.lastName.confidence === "low");
+const idp2 = Object.fromEntries(M.buildIdDocPlan(idRec).map((e) => [e.fieldId, e]));
+check("id doc number=D56-25-002138", idp2.number.value === "D56-25-002138");
+check("id doc type=type-DriversLicense", idp2.type.optionId === "type-DriversLicense", idp2.type.optionId);
+check("id doc issuing=issuingCountryCode-PH", idp2.issuingCountryCode.optionId === "issuingCountryCode-PH");
+check("id doc expiry=11/03/2029", idp2.expiryDateString.value === "11/03/2029");
+
 check("address line1 = N/A placeholder", adp.addressLine1.value === "N/A", adp.addressLine1.value);
 check("address line2 = N/A placeholder", adp.addressLine2.value === "N/A", adp.addressLine2.value);
 check("address city = N/A placeholder", adp.city.value === "N/A", adp.city.value);

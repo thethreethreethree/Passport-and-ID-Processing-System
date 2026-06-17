@@ -7,6 +7,7 @@ const $ = (sel) => document.querySelector(sel);
 let lastReport = null;
 let parsedPlan = null;
 let parsedRecord = null;
+let idMode = false; // true when the current record is a PH ID (no MRZ)
 
 const FIELD_LABELS = {
   titlePrefix: "Title", firstName: "First name", lastName: "Last name",
@@ -65,6 +66,13 @@ async function startScan(img) {
   drawPreview();
   $("#previewwrap").style.display = "";
 
+  // Branch on the chosen document type.
+  const docType = (document.getElementById("doctype") || {}).value || "passport";
+  if (docType !== "passport") {
+    await scanId(previewImg, docType);
+    return;
+  }
+
   $("#status").textContent = "Trying to read automatically… first run loads the model (~10s).";
   try {
     const result = await window.OCR.recognizeMRZ(previewImg, ocrProgress);
@@ -81,6 +89,37 @@ async function startScan(img) {
     }
   } catch (e) {
     $("#status").textContent = "OCR error: " + e.message;
+  }
+}
+
+// PH ID path: full-card OCR (eng) -> label extraction -> review. No checksum,
+// so everything is low-confidence and the raw OCR text is shown for transparency.
+async function scanId(img, expectedType) {
+  $("#status").textContent = "Reading ID… first run loads the text model (~10s).";
+  try {
+    const { text } = await window.OCR.recognizeFullText(img, ocrProgress);
+    $("#mrztext").value = text; // show the raw OCR (also lets you send it to me to tune)
+    const res = window.IDParse.parse(text);
+    if (!res.ok) {
+      idMode = false;
+      $("#reviewcard").style.display = "none";
+      $("#fillform").disabled = true;
+      $("#status").textContent =
+        "Couldn’t recognise this ID from the text. The raw OCR is in the box — paste it to me and I’ll tune the reader.";
+      return;
+    }
+    idMode = true;
+    parsedRecord = res.record;
+    parsedPlan = window.Mappers.buildIdProfilePlan(res.record);
+    renderIdReview(res.type, parsedPlan);
+    $("#reviewcard").style.display = "";
+    $("#fillform").disabled = false;
+    $("#filliddoc").disabled = false;
+    $("#filladdress").disabled = false;
+    $("#status").textContent =
+      (ID_LABELS[res.type] || "ID") + " read — verify every field (no checksum), then Fill.";
+  } catch (e) {
+    $("#status").textContent = "ID OCR error: " + e.message;
   }
 }
 
@@ -296,6 +335,7 @@ document.getElementById("readmrz").addEventListener("click", () => {
     $("#status").textContent = "Could not find MRZ lines: " + res.reason;
     return;
   }
+  idMode = false;
   parsedRecord = res.record;
   parsedPlan = window.Mappers.buildFillPlan(res.record, { currentYear: 2026 });
   renderReview(res, parsedPlan);
@@ -306,20 +346,7 @@ document.getElementById("readmrz").addEventListener("click", () => {
   $("#status").textContent = "Parsed " + res.record.format + ". Review, then Fill.";
 });
 
-function renderReview(res, plan) {
-  let corr = "";
-  if (res.corrected && res.corrections && res.corrections.length) {
-    corr =
-      " <span class='note'>auto-corrected: " +
-      esc(res.corrections.map((c) => c.field + " " + c.from + "→" + c.to).join(", ")) +
-      "</span>";
-  }
-  $("#mrzvalid").innerHTML =
-    '<span class="badge ' + (res.valid ? "b-ok" : "b-miss") + '">' +
-    (res.valid ? "MRZ checksums valid" : "MRZ checksum mismatch — data may be misread") +
-    "</span> <span class='note'>" + esc(res.record.format) + " · " + esc(res.record.issuingState || "") + "</span>" +
-    corr;
-
+function planTable(plan) {
   const rows = plan
     .map((e) => {
       const label = FIELD_LABELS[e.fieldId] || e.fieldId;
@@ -334,8 +361,31 @@ function renderReview(res, plan) {
       );
     })
     .join("");
-  $("#record").innerHTML =
-    "<table><tr><th>Field</th><th>Value</th><th>Confidence</th></tr>" + rows + "</table>";
+  return "<table><tr><th>Field</th><th>Value</th><th>Confidence</th></tr>" + rows + "</table>";
+}
+
+function renderReview(res, plan) {
+  let corr = "";
+  if (res.corrected && res.corrections && res.corrections.length) {
+    corr =
+      " <span class='note'>auto-corrected: " +
+      esc(res.corrections.map((c) => c.field + " " + c.from + "→" + c.to).join(", ")) +
+      "</span>";
+  }
+  $("#mrzvalid").innerHTML =
+    '<span class="badge ' + (res.valid ? "b-ok" : "b-miss") + '">' +
+    (res.valid ? "MRZ checksums valid" : "MRZ checksum mismatch — data may be misread") +
+    "</span> <span class='note'>" + esc(res.record.format) + " · " + esc(res.record.issuingState || "") + "</span>" +
+    corr;
+  $("#record").innerHTML = planTable(plan);
+}
+
+const ID_LABELS = { "lto-license": "PH Driver's License", "philid": "PhilID (National ID)", "prc-id": "PRC ID" };
+function renderIdReview(type, plan) {
+  $("#mrzvalid").innerHTML =
+    '<span class="badge b-low">' + esc(ID_LABELS[type] || "ID") +
+    " — no checksum, verify every field</span>";
+  $("#record").innerHTML = planTable(plan);
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -399,7 +449,10 @@ document.getElementById("fillform").addEventListener("click", () => {
   if (parsedPlan) runFill(parsedPlan, "Profile");
 });
 document.getElementById("filliddoc").addEventListener("click", () => {
-  fillSectionInteractive("Identity documents", "number", window.Mappers.buildIdentityDocPlan(parsedRecord, { currentYear: 2026 }), "Identity document");
+  const plan = idMode
+    ? window.Mappers.buildIdDocPlan(parsedRecord)
+    : window.Mappers.buildIdentityDocPlan(parsedRecord, { currentYear: 2026 });
+  fillSectionInteractive("Identity documents", "number", plan, "Identity document");
 });
 document.getElementById("filladdress").addEventListener("click", () => {
   fillSectionInteractive("Addresses", "addressLine1", window.Mappers.buildAddressPlan(parsedRecord), "Address");

@@ -248,9 +248,70 @@
     ];
   }
 
+  // ---- Philippine ID (no MRZ) plans. Everything is LOW confidence — no checksum
+  // exists, so staff must verify each field. record comes from lib/idparse.js. ----
+
+  // Our docType -> Mews "type" combobox value (assumed; the fill verifies the option).
+  const ID_TYPE_VALUE = { "lto-license": "DriversLicense", "philid": "IdentityCard", "prc-id": "IdentityCard" };
+
+  function buildIdProfilePlan(record) {
+    const plan = [];
+    const add = (e) => plan.push(e);
+    const nat = nationalityToAlpha2(record.nationality);
+    const given = record.firstName || "";
+
+    add({ fieldId: "firstName", kind: "text", value: given, confidence: given ? "low" : "low", source: "id", note: "from ID — verify" });
+    add({ fieldId: "lastName", kind: "text", value: record.surname || "", confidence: "low", source: "id", note: "from ID — verify" });
+    add({ fieldId: "secondLastName", kind: "text", value: record.middleName || "", confidence: "low", source: "id", note: "middle name (mother's surname) — verify" });
+    add({
+      fieldId: "nationality", kind: "combobox", value: nat.alpha2,
+      optionId: nat.alpha2 ? "nationality-" + nat.alpha2 : null,
+      confidence: nat.ok ? "low" : "manual", source: "id",
+      note: nat.ok ? "from ID — verify" : "could not map nationality",
+    });
+    const gender = sexToGender(record.sex);
+    add({
+      fieldId: "gender", kind: "combobox", value: gender, optionId: gender ? "gender-" + gender : null,
+      confidence: gender ? "low" : "manual", source: "id",
+      note: gender ? "from ID — verify" : "sex not on this ID — enter manually",
+    });
+    add({
+      fieldId: "birthDate", kind: "text", value: record.birthDate || "",
+      confidence: record.birthDate ? "low" : "manual", source: "id",
+      note: record.birthDate ? "from ID — verify" : "not on this ID",
+    });
+    add({
+      fieldId: "birthCountry", kind: "combobox", value: nat.alpha2,
+      optionId: nat.alpha2 ? "birthCountry-" + nat.alpha2 : null,
+      confidence: "manual", source: "derived", note: "assumed = nationality — confirm",
+    });
+    return plan;
+  }
+
+  function buildIdDocPlan(record) {
+    const plan = [];
+    const add = (e) => plan.push(e);
+    add({ fieldId: "number", kind: "text", value: record.documentNumber || "", confidence: "low", source: "id", note: "from ID — verify" });
+    const typeVal = ID_TYPE_VALUE[record.docType] || null;
+    add({
+      fieldId: "type", kind: "combobox", value: typeVal, optionId: typeVal ? "type-" + typeVal : null,
+      confidence: "low", source: "id", note: "document type assumed (" + (record.documentLabel || record.docType) + ") — verify",
+    });
+    add({ fieldId: "issuingCountryCode", kind: "combobox", value: "PH", optionId: "issuingCountryCode-PH", confidence: "low", source: "id", note: "from ID — verify" });
+    add({
+      fieldId: "expiryDateString", kind: "text", value: record.expiry || "",
+      confidence: record.expiry ? "low" : "manual", source: "id",
+      note: record.expiry ? "from ID — verify" : "no expiry on this ID",
+    });
+    add({ fieldId: "issueDateString", kind: "text", value: "", confidence: "manual", source: "none", note: "issue date not extracted — manual" });
+    add({ fieldId: "issuingCity", kind: "text", value: "", confidence: "manual", source: "none", note: "not on ID — manual" });
+    return plan;
+  }
+
   const api = {
     A3_A2, nationalityToAlpha2, sexToGender, sexToTitle, mapDocType,
     formatBirthDate, buildFillPlan, buildIdentityDocPlan, buildAddressPlan,
+    ID_TYPE_VALUE, buildIdProfilePlan, buildIdDocPlan,
   };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.Mappers = api;
